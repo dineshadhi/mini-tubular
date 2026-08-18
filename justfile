@@ -6,7 +6,7 @@ build:
 
 # Build the eBPF kernel program (requires Linux with rust-src + nightly)
 build-ebpf:
-    cd tubular-lb-ebpf && cargo +nightly build --release -Z build-std=core
+    cd tubular-lb-ebpf && cargo +nightly build --release --target bpfel-unknown-none -Z build-std=core
 
 # Run the HTTP server (port is required)
 serve port msg=message:
