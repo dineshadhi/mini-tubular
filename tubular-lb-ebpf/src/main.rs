@@ -6,7 +6,7 @@ use aya_ebpf::{
     bindings::{bpf_map_def, bpf_map_type::BPF_MAP_TYPE_SOCKMAP},
     helpers::{bpf_map_lookup_elem, bpf_sk_assign, bpf_sk_release},
     macros::{map, sk_lookup},
-    maps::{Array, PinningType},
+    maps::Array,
     programs::SkLookupContext,
     EbpfContext,
 };
@@ -27,7 +27,7 @@ static mut SOCK_POOL: bpf_map_def = bpf_map_def {
     max_entries: MAX_SOCKETS,
     map_flags: 0,
     id: 0,
-    pinning: PinningType::None as u32,
+    pinning: 0,    // PinningType::None
 };
 
 /// STATE[0] = pool size, STATE[1] = round-robin counter.
