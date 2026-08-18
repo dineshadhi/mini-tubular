@@ -14,10 +14,10 @@ use core::ffi::c_void;
 use aya_log_ebpf::info;
 
 const MAX_SOCKETS: u32 = 64;
-const BPF_SK_LOOKUP_F_REPLACE: u64 = 1 << 0;
+const SK_DROP: u32 = 0;
+const SK_PASS: u32 = 1;
 
-/// Correctly-sized SOCKMAP: value_size=8 (sizeof __u64) to hold bpf_sock *.
-/// aya's SockMap uses value_size=4 which is wrong for bpf_sk_assign.
+/// Four-byte values let userspace register sockets with Aya's SockMap API.
 #[no_mangle]
 #[link_section = "maps"]
 static mut SOCK_POOL: bpf_map_def = bpf_map_def {
@@ -38,7 +38,7 @@ static STATE: Array<u64> = Array::with_max_entries(2, 0);
 pub fn tubular_lb(ctx: SkLookupContext) -> u32 {
     match try_lb(&ctx) {
         Ok(v) => v,
-        Err(_) => 0,
+        Err(_) => SK_DROP,
     }
 }
 
@@ -46,14 +46,14 @@ pub fn tubular_lb(ctx: SkLookupContext) -> u32 {
 fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
     let local_port = unsafe { (*ctx.lookup).local_port };
     if local_port != 443 {
-        return Ok(0);
+        return Ok(SK_PASS);
     }
     info!(ctx, "intercepting port 443");
 
     let size = *STATE.get(0).ok_or(0i64)?;
     if size == 0 {
         info!(ctx, "pool empty");
-        return Ok(0);
+        return Ok(SK_DROP);
     }
 
     let counter_ptr = STATE.get_ptr_mut(1).ok_or(0i64)?;
@@ -72,7 +72,7 @@ fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
         );
         if sk.is_null() {
             info!(ctx, "slot {} null", idx);
-            return Ok(0);
+            return Ok(SK_DROP);
         }
         let r = bpf_sk_assign(ctx.as_ptr() as *mut c_void, sk, 0);
         bpf_sk_release(sk);
@@ -81,11 +81,11 @@ fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
 
     if ret == 0 {
         info!(ctx, "assigned ok slot {}", idx);
+        Ok(SK_PASS)
     } else {
         info!(ctx, "assign failed slot {} err {}", idx, ret);
+        Ok(SK_DROP)
     }
-
-    Ok(0)
 }
 
 #[panic_handler]
