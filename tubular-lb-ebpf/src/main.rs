@@ -3,6 +3,7 @@
 #![allow(static_mut_refs)]
 
 use aya_ebpf::{
+    bindings::bpf_sk_lookup,
     macros::{map, sk_lookup},
     maps::{Array, SockMap},
     programs::SkLookupContext,
@@ -31,7 +32,8 @@ pub fn tubular_lb(ctx: SkLookupContext) -> u32 {
 fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
     // Only intercept connections destined for port 443.
     // All other ports (SSH on 22, etc.) pass through untouched.
-    if ctx.local_port() != 443 {
+    let local_port = unsafe { (*ctx.lookup).local_port };
+    if local_port != 443 {
         return Ok(0);
     }
 
