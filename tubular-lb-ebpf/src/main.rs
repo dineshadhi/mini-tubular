@@ -2,24 +2,19 @@
 #![no_main]
 
 use aya_ebpf::{
-    bindings::sk_action::SK_PASS,
     macros::{map, sk_lookup},
     maps::{Array, SockMap},
     programs::SkLookupContext,
 };
-use aya_log_ebpf::info;
 
-/// Maximum sockets in the pool — must match userspace.
 const MAX_SOCKETS: u32 = 64;
 
-/// Pool of listening sockets populated by the userspace loader.
+/// Pool of listening sockets — populated by the userspace loader.
 #[map]
-static SOCK_POOL: SockMap = SockMap::with_max_entries(MAX_SOCKETS, 0);
+static mut SOCK_POOL: SockMap = SockMap::with_max_entries(MAX_SOCKETS, 0);
 
-/// Single-element array: [pool_size, rr_counter].
-/// Using Array<u64> so the eBPF verifier can reason about it.
-/// Index 0 → number of active sockets.
-/// Index 1 → round-robin counter (wraps naturally as u64).
+/// STATE[0] = pool size (number of active sockets).
+/// STATE[1] = round-robin counter.
 #[map]
 static STATE: Array<u64> = Array::with_max_entries(2, 0);
 
@@ -27,36 +22,33 @@ static STATE: Array<u64> = Array::with_max_entries(2, 0);
 pub fn tubular_lb(ctx: SkLookupContext) -> u32 {
     match try_lb(&ctx) {
         Ok(v) => v,
-        Err(_) => SK_PASS,
+        // Return SK_PASS (0) on error — let the kernel handle it normally.
+        Err(_) => 0,
     }
 }
 
 #[inline(always)]
 fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
-    // Read pool size (index 0).
-    let size_ptr = STATE.get_ptr_mut(0).ok_or(0i64)?;
-    let size = unsafe { *size_ptr };
+    // Read pool size.
+    let size = unsafe { *STATE.get(0).ok_or(0i64)? };
     if size == 0 {
-        return Ok(SK_PASS);
+        return Ok(0);
     }
 
-    // Atomically increment the round-robin counter (index 1).
+    // Fetch and increment the round-robin counter.
     let counter_ptr = STATE.get_ptr_mut(1).ok_or(0i64)?;
     let idx = unsafe {
         let c = *counter_ptr;
         *counter_ptr = c.wrapping_add(1);
-        c % size
+        (c % size) as u32
     };
 
-    // Look up the socket at that slot.
-    let sk = unsafe { SOCK_POOL.get(idx as u32) }.ok_or(0i64)?;
-
-    // Assign this socket to handle the incoming connection.
-    ctx.assign(sk, 0).map_err(|e| e as i64)?;
-
-    info!(ctx, "assigned connection -> slot {}", idx);
-
-    Ok(SK_PASS)
+    // redirect_sk_lookup does the bpf_sk_assign internally.
+    let ret = unsafe { SOCK_POOL.redirect_sk_lookup(ctx, idx, 0) };
+    match ret {
+        Ok(()) => Ok(0),
+        Err(_) => Ok(0),
+    }
 }
 
 #[panic_handler]
