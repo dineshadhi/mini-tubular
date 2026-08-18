@@ -29,6 +29,12 @@ pub fn tubular_lb(ctx: SkLookupContext) -> u32 {
 
 #[inline(always)]
 fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
+    // Only intercept connections destined for port 443.
+    // All other ports (SSH on 22, etc.) pass through untouched.
+    if ctx.local_port() != 443 {
+        return Ok(0);
+    }
+
     // Read pool size.
     let size = *STATE.get(0).ok_or(0i64)?;
     if size == 0 {
