@@ -44,7 +44,8 @@ fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
     };
 
     // redirect_sk_lookup does bpf_sk_assign internally.
-    unsafe { SOCK_POOL.redirect_sk_lookup(ctx, idx, 0).map_err(|e| e as i64) }
+    unsafe { SOCK_POOL.redirect_sk_lookup(ctx, idx, 0).map_err(|e| e as i64)?; }
+    Ok(0)
 }
 
 #[panic_handler]
