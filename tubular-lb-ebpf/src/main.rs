@@ -3,13 +3,19 @@
 #![allow(static_mut_refs)]
 
 use aya_ebpf::{
+    bindings::{bpf_map_lookup_elem, bpf_sk_assign, bpf_sk_release},
+    cty::c_void,
     macros::{map, sk_lookup},
     maps::{Array, SockMap},
     programs::SkLookupContext,
+    EbpfContext,
 };
 use aya_log_ebpf::info;
 
 const MAX_SOCKETS: u32 = 64;
+
+// BPF_SK_LOOKUP_F_REPLACE — override port mismatch check
+const BPF_SK_LOOKUP_F_REPLACE: u64 = 1 << 0;
 
 /// Pool of listening sockets — populated by the userspace loader.
 #[map]
@@ -30,16 +36,11 @@ pub fn tubular_lb(ctx: SkLookupContext) -> u32 {
 
 #[inline(always)]
 fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
-    // Log every invocation with the destination port so we can verify
-    // what byte order local_port is in and whether the filter works.
     let local_port_raw = unsafe { (*ctx.lookup).local_port };
-    let local_port_be = u32::from_be(local_port_raw);
-    info!(ctx, "sk_lookup fired: raw={} be={}", local_port_raw, local_port_be);
+    info!(ctx, "sk_lookup fired: port={}", local_port_raw);
 
-    // Only intercept connections destined for port 443.
-    // Try both byte orders and log which one matches.
-    if local_port_raw != 443 && local_port_be != 443 {
-        info!(ctx, "passing through port raw={}", local_port_raw);
+    // Only intercept port 443 (host byte order).
+    if local_port_raw != 443 {
         return Ok(0);
     }
     info!(ctx, "intercepting port 443");
@@ -47,6 +48,7 @@ fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
     // Read pool size.
     let size = *STATE.get(0).ok_or(0i64)?;
     if size == 0 {
+        info!(ctx, "pool empty, passing through");
         return Ok(0);
     }
 
@@ -58,12 +60,29 @@ fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
         (c % size) as u32
     };
 
-    // BPF_SK_LOOKUP_F_REPLACE (1) forces assignment even when the socket is
-    // bound to a different port than the incoming connection's destination port.
-    // Without this flag the kernel silently rejects the assignment when ports
-    // don't match (e.g. socket on :8000 assigned to a :443 connection).
-    unsafe { SOCK_POOL.redirect_sk_lookup(ctx, idx, 1).map_err(|e| e as i64)?; }
-    info!(ctx, "assigned connection to slot {}", idx);
+    // Look up the socket directly and call bpf_sk_assign without releasing
+    // the reference first — aya's redirect_sk_lookup calls bpf_sk_release
+    // immediately after bpf_sk_assign which drops the ref too early.
+    let ret = unsafe {
+        let map_ptr = &mut SOCK_POOL.def as *mut _ as *mut c_void;
+        let sk = bpf_map_lookup_elem(map_ptr, &idx as *const _ as *const c_void);
+        if sk.is_null() {
+            info!(ctx, "slot {} is empty", idx);
+            return Ok(0);
+        }
+        // bpf_sk_assign with BPF_SK_LOOKUP_F_REPLACE
+        let r = bpf_sk_assign(ctx.as_ptr() as *mut _, sk, BPF_SK_LOOKUP_F_REPLACE);
+        // Release only after assign is done
+        bpf_sk_release(sk);
+        r
+    };
+
+    if ret == 0 {
+        info!(ctx, "assigned connection to slot {}", idx);
+    } else {
+        info!(ctx, "bpf_sk_assign failed: {} for slot {}", ret, idx);
+    }
+
     Ok(0)
 }
 
