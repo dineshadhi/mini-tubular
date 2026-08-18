@@ -78,15 +78,15 @@ async fn main() -> Result<()> {
         }
     }
 
-    // ── 4. Write pool size into STATE[0] ────────────────────────────────────
-    {
-        let mut state: Array<_, u64> = Array::try_from(
-            bpf.map_mut("STATE").context("STATE map not found")?,
-        )?;
+    // ── 4. Configure round-robin state when the object defines it ──────────
+    if let Some(state_map) = bpf.map_mut("STATE") {
+        let mut state: Array<_, u64> = Array::try_from(state_map)?;
         state
             .set(0, fds.len() as u64, 0)
             .context("Failed to set STATE[0] (pool_size)")?;
         info!("Pool size set to {}", fds.len());
+    } else {
+        info!("No STATE map; socket slots are selected by the eBPF program");
     }
 
     // ── 5. Attach sk_lookup program to the current network namespace ────────
