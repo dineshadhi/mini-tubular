@@ -30,8 +30,8 @@ pub fn tubular_lb(ctx: SkLookupContext) -> u32 {
 #[inline(always)]
 fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
     // Only intercept connections destined for port 443.
-    // All other ports (SSH on 22, etc.) pass through untouched.
-    let local_port = unsafe { (*ctx.lookup).local_port };
+    // local_port is in network byte order (big-endian), so swap before comparing.
+    let local_port = unsafe { u32::from_be((*ctx.lookup).local_port) };
     if local_port != 443 {
         return Ok(0);
     }
