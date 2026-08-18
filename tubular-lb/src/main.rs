@@ -121,31 +121,70 @@ async fn main() -> Result<()> {
 }
 
 /// Resolve a CLI argument to a raw fd in this process.
+///
+/// Accepts /proc/<pid>/fd/<n> paths — uses pidfd_open + pidfd_getfd to
+/// duplicate the socket fd from the target process into this one.
 fn resolve_socket_arg(arg: &str) -> Result<RawFd> {
-    if Path::new(arg).exists() {
-        let fd = unsafe {
-            libc::open(
-                std::ffi::CString::new(arg.as_bytes())?.as_ptr(),
-                libc::O_RDWR | libc::O_CLOEXEC,
-            )
-        };
-        if fd < 0 {
-            bail!(
-                "open({}) failed: {}",
-                arg,
-                std::io::Error::last_os_error()
-            );
-        }
-        validate_socket_fd(fd)?;
+    // Parse /proc/<pid>/fd/<fd> format.
+    if let Some(fd) = parse_proc_fd_path(arg) {
         return Ok(fd);
     }
 
+    // Plain integer fd (already in this process).
     if let Ok(n) = arg.parse::<RawFd>() {
         validate_socket_fd(n)?;
         return Ok(n);
     }
 
-    bail!("'{}' is neither a valid path nor a numeric fd", arg);
+    bail!("'{}' is neither a /proc/<pid>/fd/<n> path nor a numeric fd", arg);
+}
+
+/// Parse /proc/<pid>/fd/<n>, then use pidfd_open + pidfd_getfd to duplicate
+/// the socket fd into the current process.
+fn parse_proc_fd_path(arg: &str) -> Option<RawFd> {
+    // Expected format: /proc/<pid>/fd/<fd>
+    let parts: Vec<&str> = arg.trim_start_matches('/').split('/').collect();
+    // parts = ["proc", "<pid>", "fd", "<n>"]
+    if parts.len() != 4 || parts[0] != "proc" || parts[2] != "fd" {
+        return None;
+    }
+
+    let pid: libc::pid_t = parts[1].parse().ok()?;
+    let target_fd: RawFd = parts[3].parse().ok()?;
+
+    let fd = pidfd_getfd(pid, target_fd).ok()?;
+    validate_socket_fd(fd).ok()?;
+    Some(fd)
+}
+
+/// Use pidfd_open(2) + pidfd_getfd(2) to duplicate a fd from another process.
+/// Requires Linux 5.6+ and CAP_SYS_PTRACE (or same UID + PTRACE_MODE_ATTACH).
+fn pidfd_getfd(pid: libc::pid_t, target_fd: RawFd) -> Result<RawFd> {
+    // pidfd_open(pid, 0)
+    let pidfd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0u32) };
+    if pidfd < 0 {
+        bail!(
+            "pidfd_open({}) failed: {}",
+            pid,
+            std::io::Error::last_os_error()
+        );
+    }
+    let pidfd = pidfd as RawFd;
+
+    // pidfd_getfd(pidfd, target_fd, 0)
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_getfd, pidfd, target_fd, 0u32) };
+    unsafe { libc::close(pidfd) };
+
+    if fd < 0 {
+        bail!(
+            "pidfd_getfd(pid={}, fd={}) failed: {}",
+            pid,
+            target_fd,
+            std::io::Error::last_os_error()
+        );
+    }
+
+    Ok(fd as RawFd)
 }
 
 /// Confirm the fd is actually a socket (getsockopt SO_TYPE).
