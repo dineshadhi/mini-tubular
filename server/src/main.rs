@@ -13,10 +13,49 @@ use rustls::ServerConnection;
 
 // ── TLS certificate loading ────────────────────────────────────────────────
 
-/// Try to find a certificate in /etc/letsencrypt/live/<domain>/ for every
-/// domain present in that directory.  Returns (cert_chain, private_key) on
-/// success.
+const DOMAIN: &str = "demo.dineshadhi.com";
+const ACME_DIR: &str = "/etc/letsencrypt/live/demo.dineshadhi.com";
+
+/// Load PEM files from a specific directory path.
+fn load_certs_from(dir: &Path) -> Option<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
+    let fullchain = dir.join("fullchain.pem");
+    let privkey = dir.join("privkey.pem");
+
+    if !fullchain.exists() || !privkey.exists() {
+        return None;
+    }
+
+    let cert_pem = fs::read(&fullchain).ok()?;
+    let key_pem = fs::read(&privkey).ok()?;
+
+    let certs: Vec<CertificateDer<'static>> =
+        rustls_pemfile::certs(&mut cert_pem.as_slice())
+            .filter_map(|r| r.ok())
+            .map(|c| c.into_owned())
+            .collect();
+
+    let key = rustls_pemfile::private_key(&mut key_pem.as_slice())
+        .ok()
+        .flatten()?
+        .clone_key();
+
+    if certs.is_empty() {
+        return None;
+    }
+
+    println!("TLS: loaded ACME certificate from {}", dir.display());
+    Some((certs, key))
+}
+
+/// Try to load ACME certs: check the known domain path first, then scan the
+/// rest of /etc/letsencrypt/live/ as a fallback.
 fn load_acme_certs() -> Option<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
+    // 1. Known path for demo.dineshadhi.com
+    if let Some(result) = load_certs_from(Path::new(ACME_DIR)) {
+        return Some(result);
+    }
+
+    // 2. Generic scan of /etc/letsencrypt/live/
     let live = Path::new("/etc/letsencrypt/live");
     if !live.is_dir() {
         return None;
@@ -24,43 +63,18 @@ fn load_acme_certs() -> Option<(Vec<CertificateDer<'static>>, PrivateKeyDer<'sta
 
     for entry in fs::read_dir(live).ok()? {
         let entry = entry.ok()?;
-        let domain_dir = entry.path();
-        let fullchain = domain_dir.join("fullchain.pem");
-        let privkey = domain_dir.join("privkey.pem");
-
-        if !fullchain.exists() || !privkey.exists() {
-            continue;
-        }
-
-        let cert_pem = fs::read(&fullchain).ok()?;
-        let key_pem = fs::read(&privkey).ok()?;
-
-        let certs: Vec<CertificateDer<'static>> =
-            rustls_pemfile::certs(&mut cert_pem.as_slice())
-                .filter_map(|r| r.ok())
-                .map(|c| c.into_owned())
-                .collect();
-
-        let key = rustls_pemfile::private_key(&mut key_pem.as_slice())
-            .ok()
-            .flatten()?
-            .clone_key();
-
-        if !certs.is_empty() {
-            println!(
-                "TLS: loaded ACME certificate from {}",
-                domain_dir.display()
-            );
-            return Some((certs, key));
+        if let Some(result) = load_certs_from(&entry.path()) {
+            return Some(result);
         }
     }
 
     None
 }
 
-/// Generate a self-signed certificate for localhost / 127.0.0.1.
+/// Generate a self-signed certificate for the known domain + localhost.
 fn self_signed_cert() -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>) {
     let subject_alt_names = vec![
+        DOMAIN.to_string(),
         "localhost".to_string(),
         "127.0.0.1".to_string(),
     ];
@@ -72,7 +86,7 @@ fn self_signed_cert() -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>) 
     let key_der = PrivateKeyDer::try_from(key_pair.serialize_der())
         .expect("invalid key der");
 
-    println!("TLS: no ACME certs found — using self-signed certificate");
+    println!("TLS: no ACME certs found — using self-signed certificate for {}", DOMAIN);
     (vec![cert_der], key_der)
 }
 
