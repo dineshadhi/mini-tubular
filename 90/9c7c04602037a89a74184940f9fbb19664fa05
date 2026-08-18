@@ -1,0 +1,19 @@
+Cargo.lock
+  s_055c9b5d815855::t_f5d1400fb51240 1-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "909c7c04602037a89a74184940f9fbb19664fa05",
+  "prompts": {},
+  "sessions": {
+    "s_055c9b5d815855": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fe9b7ba02ffex3nUx55aSLKcCB",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Developer <dev@mini-tubular.local>"
+    }
+  }
+}
