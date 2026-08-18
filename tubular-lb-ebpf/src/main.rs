@@ -22,12 +22,12 @@ const BPF_SK_LOOKUP_F_REPLACE: u64 = 1 << 0;
 #[link_section = "maps"]
 static mut SOCK_POOL: bpf_map_def = bpf_map_def {
     type_: BPF_MAP_TYPE_SOCKMAP,
-    key_size: 4,   // sizeof(u32)
-    value_size: 8, // sizeof(__u64) — matches kernel expectation for bpf_sock *
+    key_size: 4,  // sizeof(u32)
+    value_size: 4, // sizeof(u32) — kernel requires 4 for SOCKMAP
     max_entries: MAX_SOCKETS,
     map_flags: 0,
     id: 0,
-    pinning: 0,    // PinningType::None
+    pinning: 0,
 };
 
 /// STATE[0] = pool size, STATE[1] = round-robin counter.

@@ -14,11 +14,11 @@
 ///   4. Sets STATE[0] = pool size.
 ///   5. Attaches the sk_lookup program to the network namespace.
 ///   6. Blocks until Ctrl-C, then cleans up.
-use std::{fs, mem, os::unix::io::{AsFd, AsRawFd, RawFd}};
+use std::{fs, os::unix::io::RawFd};
 
 use anyhow::{bail, Context, Result};
 use aya::{
-    maps::{Array, Map},
+    maps::{Array, SockMap},
     programs::SkLookup,
     Ebpf,
 };
@@ -65,19 +65,14 @@ async fn main() -> Result<()> {
         warn!("eBPF logger not available: {}", e);
     }
 
-    // ── 3. Populate SOCK_POOL via raw syscall ──────────────────────────────
-    // aya's SockMap::set checks value_size == sizeof(RawFd) == 4, but our
-    // custom map uses value_size=8 to match kernel's bpf_sock * storage.
-    // We bypass aya's type check and call bpf_map_update_elem directly.
+    // ── 3. Populate SOCK_POOL ───────────────────────────────────────────────
     {
-        let map = bpf.map_mut("SOCK_POOL").context("SOCK_POOL map not found")?;
-        let map_fd = match map {
-            Map::SockMap(ref m) => m.fd().as_fd().as_raw_fd(),
-            _ => bail!("SOCK_POOL is not a SockMap"),
-        };
+        let mut sock_pool: SockMap<_> = SockMap::try_from(
+            bpf.map_mut("SOCK_POOL").context("SOCK_POOL map not found")?,
+        )?;
         for (i, &fd) in fds.iter().enumerate() {
-            let key: u32 = i as u32;
-            sockmap_insert(map_fd, key, fd)
+            sock_pool
+                .set(i as u32, &fd, 0)
                 .with_context(|| format!("Failed to insert fd {} at slot {}", fd, i))?;
             info!("SOCK_POOL[{}] = fd {}", i, fd);
         }
@@ -119,45 +114,6 @@ async fn main() -> Result<()> {
     // ── 6. Wait for Ctrl-C ──────────────────────────────────────────────────
     signal::ctrl_c().await?;
     info!("Shutting down.");
-
-    Ok(())
-}
-
-/// Insert a socket fd into a SOCKMAP using the raw bpf(2) syscall.
-/// This bypasses aya's value_size check (which expects 4 bytes) since our
-/// kernel-side map uses value_size=8 to correctly store bpf_sock * pointers.
-/// The kernel always accepts a 4-byte fd as the value in userspace map updates
-/// for SOCKMAP regardless of value_size — it converts fd → bpf_sock * itself.
-fn sockmap_insert(map_fd: RawFd, key: u32, sock_fd: RawFd) -> Result<()> {
-    // BPF_MAP_UPDATE_ELEM = 2
-    const BPF_MAP_UPDATE_ELEM: u64 = 2;
-
-    #[repr(C)]
-    struct BpfAttr {
-        map_fd: u32,
-        key:    u64,
-        value:  u64,
-        flags:  u64,
-    }
-
-    let attr = BpfAttr {
-        map_fd: map_fd as u32,
-        key:    &key as *const u32 as u64,
-        value:  &sock_fd as *const RawFd as u64,
-        flags:  0,
-    };
-
-    let ret = unsafe {
-        libc::syscall(libc::SYS_bpf, BPF_MAP_UPDATE_ELEM, &attr as *const BpfAttr, mem::size_of::<BpfAttr>())
-    };
-
-    if ret < 0 {
-        bail!(
-            "bpf_map_update_elem(map_fd={}, key={}, sock_fd={}) failed: {}",
-            map_fd, key, sock_fd,
-            std::io::Error::last_os_error()
-        );
-    }
 
     Ok(())
 }
