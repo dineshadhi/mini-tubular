@@ -16,14 +16,14 @@
 ///   6. Blocks until Ctrl-C, then cleans up.
 use std::{
     fs,
-    os::unix::io::{FromRawFd, RawFd},
+    os::unix::io::RawFd,
     path::Path,
 };
 
 use anyhow::{bail, Context, Result};
 use aya::{
     maps::{Array, SockMap},
-    programs::{SkLookup, SkLookupLink},
+    programs::SkLookup,
     Ebpf,
 };
 use aya_log::EbpfLogger;
@@ -71,10 +71,13 @@ async fn main() -> Result<()> {
 
     // ── 3. Populate SOCK_POOL ───────────────────────────────────────────────
     {
-        let mut sock_pool: SockMap<_> = SockMap::try_from(bpf.map_mut("SOCK_POOL")?)?;
+        let mut sock_pool: SockMap<_> = SockMap::try_from(
+            bpf.map_mut("SOCK_POOL")
+                .context("SOCK_POOL map not found")?,
+        )?;
         for (i, &fd) in fds.iter().enumerate() {
             sock_pool
-                .set(i as u32, fd, 0)
+                .set(i as u32, &fd, 0)
                 .with_context(|| format!("Failed to insert fd {} at slot {}", fd, i))?;
             info!("SOCK_POOL[{}] = fd {}", i, fd);
         }
@@ -82,7 +85,9 @@ async fn main() -> Result<()> {
 
     // ── 4. Write pool size into STATE[0] ────────────────────────────────────
     {
-        let mut state: Array<_, u64> = Array::try_from(bpf.map_mut("STATE")?)?;
+        let mut state: Array<_, u64> = Array::try_from(
+            bpf.map_mut("STATE").context("STATE map not found")?,
+        )?;
         state
             .set(0, fds.len() as u64, 0)
             .context("Failed to set STATE[0] (pool_size)")?;
@@ -99,7 +104,7 @@ async fn main() -> Result<()> {
 
     program.load()?;
 
-    let _link: SkLookupLink = program
+    let _link = program
         .attach(netns)
         .context("Failed to attach sk_lookup program")?;
 
@@ -116,16 +121,8 @@ async fn main() -> Result<()> {
 }
 
 /// Resolve a CLI argument to a raw fd in this process.
-///
-/// Accepts:
-///   - `/proc/<pid>/fd/<n>` — opened via O_PATH then dup'd so we own it
-///   - A plain integer — treated as an already-inherited fd (validated by fstat)
 fn resolve_socket_arg(arg: &str) -> Result<RawFd> {
     if Path::new(arg).exists() {
-        // Open the /proc/<pid>/fd/<n> symlink.
-        // O_PATH lets us get a handle without requiring read/write perms on the
-        // socket itself; but SockMap::set needs an actual socket fd, so we use
-        // the regular open via the procfs path which gives us a dup'd fd.
         let fd = unsafe {
             libc::open(
                 std::ffi::CString::new(arg.as_bytes())?.as_ptr(),
@@ -143,7 +140,6 @@ fn resolve_socket_arg(arg: &str) -> Result<RawFd> {
         return Ok(fd);
     }
 
-    // Try parsing as a plain integer fd.
     if let Ok(n) = arg.parse::<RawFd>() {
         validate_socket_fd(n)?;
         return Ok(n);
