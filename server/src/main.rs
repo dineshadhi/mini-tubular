@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::io::{BufWriter, Read, Write};
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
@@ -203,11 +203,11 @@ fn handle_client(
         }
     };
 
-    // Complete TLS handshake, then serve HTTP over the encrypted stream.
+    // rustls::Stream ties the TLS connection to the TCP stream.
     let mut binding = &stream;
     let mut tls_stream = rustls::Stream::new(&mut tls, &mut binding);
 
-    // Read the HTTP request (we just need to drain it; we always respond 200).
+    // Read the HTTP request — drives the TLS handshake on the first call.
     let mut buf = [0u8; 4096];
     match tls_stream.read(&mut buf) {
         Ok(0) | Err(_) => return,
@@ -224,10 +224,20 @@ fn handle_client(
         html,
     );
 
-    let mut writer = BufWriter::new(&mut tls_stream);
-    if let Err(e) = writer.write_all(response.as_bytes()) {
+    // Write and flush the response through the TLS layer.
+    if let Err(e) = tls_stream.write_all(response.as_bytes()) {
         eprintln!("Write error: {}", e);
+        return;
     }
+    if let Err(e) = tls_stream.flush() {
+        eprintln!("Flush error: {}", e);
+        return;
+    }
+
+    // Send TLS close_notify so the client knows the response is complete.
+    tls_stream.conn.send_close_notify();
+    // Drive the close_notify onto the wire.
+    let _ = tls_stream.write(&[]);
 }
 
 // ── Entry point ────────────────────────────────────────────────────────────
