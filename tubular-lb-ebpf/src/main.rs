@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![allow(static_mut_refs)]
 
 use aya_ebpf::{
     macros::{map, sk_lookup},
@@ -22,7 +23,6 @@ static STATE: Array<u64> = Array::with_max_entries(2, 0);
 pub fn tubular_lb(ctx: SkLookupContext) -> u32 {
     match try_lb(&ctx) {
         Ok(v) => v,
-        // Return SK_PASS (0) on error — let the kernel handle it normally.
         Err(_) => 0,
     }
 }
@@ -30,7 +30,7 @@ pub fn tubular_lb(ctx: SkLookupContext) -> u32 {
 #[inline(always)]
 fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
     // Read pool size.
-    let size = unsafe { *STATE.get(0).ok_or(0i64)? };
+    let size = *STATE.get(0).ok_or(0i64)?;
     if size == 0 {
         return Ok(0);
     }
@@ -43,12 +43,8 @@ fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
         (c % size) as u32
     };
 
-    // redirect_sk_lookup does the bpf_sk_assign internally.
-    let ret = unsafe { SOCK_POOL.redirect_sk_lookup(ctx, idx, 0) };
-    match ret {
-        Ok(()) => Ok(0),
-        Err(_) => Ok(0),
-    }
+    // redirect_sk_lookup does bpf_sk_assign internally.
+    unsafe { SOCK_POOL.redirect_sk_lookup(ctx, idx, 0).map_err(|e| e as i64) }
 }
 
 #[panic_handler]
