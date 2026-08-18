@@ -111,6 +111,7 @@ fn build_html(port: u16, fd_path: &str, message: &str) -> String {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:," />
   <title>mini-tubular</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -209,10 +210,12 @@ fn handle_client(
 
     // Read the HTTP request — drives the TLS handshake on the first call.
     let mut buf = [0u8; 4096];
-    match tls_stream.read(&mut buf) {
+    let request_len = match tls_stream.read(&mut buf) {
         Ok(0) | Err(_) => return,
-        Ok(_) => {}
-    }
+        Ok(n) => n,
+    };
+    let request = String::from_utf8_lossy(&buf[..request_len]);
+    println!("Request: {}", request.lines().next().unwrap_or("<invalid>"));
 
     let pid = std::process::id();
     let fd_path = format!("/proc/{}/fd/{}", pid, listener_fd);
