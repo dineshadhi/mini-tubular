@@ -24,6 +24,7 @@ fn handle_client(mut stream: TcpStream, port: u16, message: &str, listener_fd: i
   <title>mini-tubular</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    html {{ font-size: 20px; }}
     body {{
       min-height: 100vh;
       display: flex;
@@ -35,43 +36,44 @@ fn handle_client(mut stream: TcpStream, port: u16, message: &str, listener_fd: i
     }}
     .card {{
       text-align: center;
-      padding: 3rem 4rem;
+      padding: 5rem 6rem;
       border: 1px solid #2a2a2a;
-      border-radius: 12px;
+      border-radius: 20px;
       background: #1a1a1a;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-      max-width: 560px;
-      width: 90%;
+      box-shadow: 0 16px 64px rgba(0,0,0,0.6);
+      max-width: 860px;
+      width: 92%;
     }}
     .label {{
-      font-size: 0.75rem;
-      letter-spacing: 0.15em;
+      font-size: 1rem;
+      letter-spacing: 0.2em;
       text-transform: uppercase;
-      color: #666;
-      margin-bottom: 0.5rem;
+      color: #555;
+      margin-bottom: 0.75rem;
     }}
     .port {{
-      font-size: 3.5rem;
-      font-weight: 700;
+      font-size: 7rem;
+      font-weight: 800;
       color: #7c6af7;
-      letter-spacing: -0.02em;
-      margin-bottom: 0.5rem;
+      letter-spacing: -0.03em;
+      line-height: 1;
+      margin-bottom: 1rem;
     }}
     .fd {{
-      font-size: 0.8rem;
+      font-size: 1.1rem;
       color: #4caf7d;
       font-family: 'Courier New', monospace;
-      margin-bottom: 1.75rem;
+      margin-bottom: 3rem;
       word-break: break-all;
     }}
     .divider {{
-      width: 40px;
-      height: 2px;
+      width: 60px;
+      height: 3px;
       background: #2a2a2a;
-      margin: 0 auto 1.75rem;
+      margin: 0 auto 3rem;
     }}
     .message {{
-      font-size: 1.1rem;
+      font-size: 1.6rem;
       line-height: 1.6;
       color: #b0b0b0;
     }}
