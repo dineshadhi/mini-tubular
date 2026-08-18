@@ -7,6 +7,7 @@ use aya_ebpf::{
     maps::{Array, SockMap},
     programs::SkLookupContext,
 };
+use aya_log_ebpf::info;
 
 const MAX_SOCKETS: u32 = 64;
 
@@ -29,12 +30,19 @@ pub fn tubular_lb(ctx: SkLookupContext) -> u32 {
 
 #[inline(always)]
 fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
+    // Log every invocation with the destination port so we can verify
+    // what byte order local_port is in and whether the filter works.
+    let local_port_raw = unsafe { (*ctx.lookup).local_port };
+    let local_port_be = u32::from_be(local_port_raw);
+    info!(ctx, "sk_lookup fired: raw={} be={}", local_port_raw, local_port_be);
+
     // Only intercept connections destined for port 443.
-    // local_port is in network byte order (big-endian), so swap before comparing.
-    let local_port = unsafe { u32::from_be((*ctx.lookup).local_port) };
-    if local_port != 443 {
+    // Try both byte orders and log which one matches.
+    if local_port_raw != 443 && local_port_be != 443 {
+        info!(ctx, "passing through port raw={}", local_port_raw);
         return Ok(0);
     }
+    info!(ctx, "intercepting port 443");
 
     // Read pool size.
     let size = *STATE.get(0).ok_or(0i64)?;
