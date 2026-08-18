@@ -3,14 +3,17 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::io::AsRawFd;
 
-fn handle_client(mut stream: TcpStream, port: u16, message: &str) {
-    let fd = stream.as_raw_fd();
-    println!("Accepted connection — fd: {}", fd);
+fn handle_client(mut stream: TcpStream, port: u16, message: &str, listener_fd: i32) {
+    let conn_fd = stream.as_raw_fd();
+    println!("Accepted connection — fd: {}", conn_fd);
 
     let mut buffer = [0u8; 1024];
     if stream.read(&mut buffer).is_err() {
         return;
     }
+
+    let pid = std::process::id();
+    let fd_path = format!("/proc/{}/fd/{}", pid, listener_fd);
 
     let html = format!(
         r#"<!DOCTYPE html>
@@ -52,13 +55,14 @@ fn handle_client(mut stream: TcpStream, port: u16, message: &str) {
       font-weight: 700;
       color: #7c6af7;
       letter-spacing: -0.02em;
-      margin-bottom: 1.75rem;
+      margin-bottom: 0.5rem;
     }}
     .fd {{
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       color: #4caf7d;
       font-family: 'Courier New', monospace;
       margin-bottom: 1.75rem;
+      word-break: break-all;
     }}
     .divider {{
       width: 40px;
@@ -77,14 +81,14 @@ fn handle_client(mut stream: TcpStream, port: u16, message: &str) {
   <div class="card">
     <p class="label">Listening on port</p>
     <p class="port">{port}</p>
-    <p class="fd">socket fd: {fd}</p>
+    <p class="fd">{fd_path}</p>
     <div class="divider"></div>
     <p class="message">{message}</p>
   </div>
 </body>
 </html>"#,
         port = port,
-        fd = fd,
+        fd_path = fd_path,
         message = message
     );
 
@@ -117,12 +121,17 @@ fn main() {
         std::process::exit(1);
     });
 
-    println!("Listening on port {} — listener fd: {}", port, listener.as_raw_fd());
+    let listener_fd = listener.as_raw_fd();
+    let pid = std::process::id();
+    let fd_path = format!("/proc/{}/fd/{}", pid, listener_fd);
+
+    println!("Listening on port {} — listener fd: {}", port, listener_fd);
+    println!("Socket path (for eBPF loader): {}", fd_path);
     println!("Message: {}", message);
 
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => handle_client(stream, port, &message),
+            Ok(stream) => handle_client(stream, port, &message, listener_fd),
             Err(e) => eprintln!("Connection error: {}", e),
         }
     }
