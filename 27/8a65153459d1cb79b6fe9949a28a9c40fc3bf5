@@ -1,0 +1,19 @@
+Cargo.lock
+  s_055c9b5d815855::t_ccb6944356ed1d 683
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "278a65153459d1cb79b6fe9949a28a9c40fc3bf5",
+  "prompts": {},
+  "sessions": {
+    "s_055c9b5d815855": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fe9b7ba02ffex3nUx55aSLKcCB",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "dineshadhi <dinesh10c04@gmail.com>"
+    }
+  }
+}
