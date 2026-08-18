@@ -14,7 +14,7 @@
 ///   4. Sets STATE[0] = pool size.
 ///   5. Attaches the sk_lookup program to the network namespace.
 ///   6. Blocks until Ctrl-C, then cleans up.
-use std::{fs, os::unix::io::RawFd};
+use std::{fs, os::unix::io::RawFd, net::TcpListener};
 
 use anyhow::{bail, Context, Result};
 use aya::{
@@ -90,7 +90,16 @@ async fn main() -> Result<()> {
         info!("Pool size set to {}", fds.len());
     }
 
-    // ── 5. Attach sk_lookup program to the current network namespace ────────
+    // ── 5. Bind a dummy listener on port 443 ───────────────────────────────
+    // sk_lookup is only triggered when a packet arrives at a port that has a
+    // bound socket. Without something listening on 443, the kernel drops the
+    // packet before ever invoking sk_lookup. This socket never calls accept()
+    // — the eBPF program redirects every connection to the pool instead.
+    let _dummy = TcpListener::bind("0.0.0.0:443")
+        .context("Failed to bind port 443 — are you running as root?")?;
+    info!("Dummy listener bound on :443 (sk_lookup will redirect all connections)");
+
+    // ── 6. Attach sk_lookup program to the current network namespace ────────
     let netns = fs::File::open("/proc/self/ns/net").context("Failed to open netns")?;
 
     let program: &mut SkLookup = bpf
@@ -109,7 +118,7 @@ async fn main() -> Result<()> {
         fds.len()
     );
 
-    // ── 6. Wait for Ctrl-C ──────────────────────────────────────────────────
+    // ── 7. Wait for Ctrl-C ──────────────────────────────────────────────────
     signal::ctrl_c().await?;
     info!("Shutting down.");
 
