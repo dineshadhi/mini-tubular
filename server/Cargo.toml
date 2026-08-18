@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 # TLS
-rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
 rustls-pemfile = "2"
 # Self-signed cert generation
 rcgen = { version = "0.13", features = ["crypto"] }
