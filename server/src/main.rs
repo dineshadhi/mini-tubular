@@ -194,7 +194,11 @@ fn handle_client(
     listener_fd: i32,
 ) {
     let conn_fd = stream.as_raw_fd();
-    println!("Accepted connection — fd: {}", conn_fd);
+    let peer = stream
+        .peer_addr()
+        .map(|addr| addr.to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    println!("Accepted TCP connection: peer={}, fd={}", peer, conn_fd);
 
     let mut tls = match ServerConnection::new(tls_config) {
         Ok(c) => c,
@@ -211,11 +215,22 @@ fn handle_client(
     // Read the HTTP request — drives the TLS handshake on the first call.
     let mut buf = [0u8; 4096];
     let request_len = match tls_stream.read(&mut buf) {
-        Ok(0) | Err(_) => return,
+        Ok(0) => {
+            println!("Connection closed without HTTP request: peer={}", peer);
+            return;
+        }
+        Err(e) => {
+            println!("TLS/read failure before HTTP request: peer={}, error={}", peer, e);
+            return;
+        }
         Ok(n) => n,
     };
     let request = String::from_utf8_lossy(&buf[..request_len]);
-    println!("Request: {}", request.lines().next().unwrap_or("<invalid>"));
+    println!(
+        "HTTP request: peer={}, request={}",
+        peer,
+        request.lines().next().unwrap_or("<invalid>")
+    );
 
     let pid = std::process::id();
     let fd_path = format!("/proc/{}/fd/{}", pid, listener_fd);
