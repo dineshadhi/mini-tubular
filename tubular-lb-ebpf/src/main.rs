@@ -58,8 +58,12 @@ fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
         (c % size) as u32
     };
 
-    // redirect_sk_lookup does bpf_sk_assign internally.
-    unsafe { SOCK_POOL.redirect_sk_lookup(ctx, idx, 0).map_err(|e| e as i64)?; }
+    // BPF_SK_LOOKUP_F_REPLACE (1) forces assignment even when the socket is
+    // bound to a different port than the incoming connection's destination port.
+    // Without this flag the kernel silently rejects the assignment when ports
+    // don't match (e.g. socket on :8000 assigned to a :443 connection).
+    unsafe { SOCK_POOL.redirect_sk_lookup(ctx, idx, 1).map_err(|e| e as i64)?; }
+    info!(ctx, "assigned connection to slot {}", idx);
     Ok(0)
 }
 

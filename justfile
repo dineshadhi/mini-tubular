@@ -8,13 +8,19 @@ build:
 build-ebpf:
     cd tubular-lb-ebpf && cargo +nightly build --release --target bpfel-unknown-none -Z build-std=core
 
-# Run the server with SO_REUSEPORT — multiple instances can share the same port.
-# The kernel round-robins connections across all instances automatically.
-# Usage: just serve 443 "Server A"  (in terminal 1)
-#        just serve 443 "Server B"  (in terminal 2)
+# Run the HTTP server (port is required)
 serve port msg=message:
     cargo run --release -p server -- {{port}} "{{msg}}"
 
-# Build then run
+# Build then run the HTTP server
 run port msg=message: build
     ./target/release/server {{port}} "{{msg}}"
+
+# Run the eBPF load balancer
+# Usage: just lb <ebpf-obj> /proc/111/fd/3 /proc/222/fd/3 ...
+lb ebpf_obj *sockets:
+    sudo RUST_LOG=info ./target/release/tubular-lb {{ebpf_obj}} {{sockets}}
+
+# Full workflow: build everything, then run lb
+lb-run ebpf_obj *sockets: build
+    sudo RUST_LOG=info ./target/release/tubular-lb {{ebpf_obj}} {{sockets}}

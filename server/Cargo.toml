@@ -9,5 +9,4 @@ rustls = { version = "0.23", default-features = false, features = ["std", "tls12
 rustls-pemfile = "2"
 # Self-signed cert generation
 rcgen = { version = "0.13", features = ["crypto"] }
-# Raw socket ops (SO_REUSEPORT)
-libc = "0.2"
+

@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::os::unix::io::{AsRawFd, FromRawFd};
+use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -240,66 +240,6 @@ fn handle_client(
     let _ = tls_stream.write(&[]);
 }
 
-// ── Socket helpers ─────────────────────────────────────────────────────────
-
-/// Create a TCP listener with SO_REUSEPORT enabled.
-/// Multiple processes can bind the same port; the kernel load-balances
-/// incoming connections across all of them automatically.
-fn bind_reuseport(port: u16) -> std::io::Result<TcpListener> {
-    use std::mem;
-    unsafe {
-        let fd = libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0);
-        if fd < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-
-        let val: libc::c_int = 1;
-
-        // SO_REUSEADDR — avoid TIME_WAIT bind failures
-        libc::setsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_REUSEADDR,
-            &val as *const _ as *const libc::c_void,
-            mem::size_of::<libc::c_int>() as libc::socklen_t,
-        );
-
-        // SO_REUSEPORT — allow multiple listeners on the same port
-        libc::setsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_REUSEPORT,
-            &val as *const _ as *const libc::c_void,
-            mem::size_of::<libc::c_int>() as libc::socklen_t,
-        );
-
-        let addr = libc::sockaddr_in {
-            sin_family: libc::AF_INET as libc::sa_family_t,
-            sin_port: port.to_be(),
-            sin_addr: libc::in_addr { s_addr: 0 }, // 0.0.0.0
-            sin_zero: [0; 8],
-        };
-
-        let ret = libc::bind(
-            fd,
-            &addr as *const _ as *const libc::sockaddr,
-            mem::size_of::<libc::sockaddr_in>() as libc::socklen_t,
-        );
-        if ret < 0 {
-            libc::close(fd);
-            return Err(std::io::Error::last_os_error());
-        }
-
-        let ret = libc::listen(fd, 128);
-        if ret < 0 {
-            libc::close(fd);
-            return Err(std::io::Error::last_os_error());
-        }
-
-        Ok(TcpListener::from_raw_fd(fd))
-    }
-}
-
 // ── Entry point ────────────────────────────────────────────────────────────
 
 fn main() {
@@ -319,10 +259,7 @@ fn main() {
 
     let tls_config = build_tls_config();
 
-    // Bind with SO_REUSEPORT so multiple server instances can share the same
-    // port. The kernel automatically round-robins incoming connections across
-    // all processes in the reuseport group — no eBPF needed for load balancing.
-    let listener = bind_reuseport(port).unwrap_or_else(|e| {
+    let listener = TcpListener::bind(("0.0.0.0", port)).unwrap_or_else(|e| {
         eprintln!("Failed to bind to port {}: {}", port, e);
         std::process::exit(1);
     });
