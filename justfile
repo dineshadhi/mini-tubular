@@ -24,3 +24,8 @@ lb ebpf_obj *sockets:
 # Full workflow: build everything, then run lb
 lb-run ebpf_obj *sockets: build
     sudo RUST_LOG=info ./target/release/tubular-lb {{ebpf_obj}} {{sockets}}
+
+# Build and run the eBPF load balancer with the standard object path
+# Usage: just run-ebpf /proc/111/fd/3 /proc/222/fd/3
+run-ebpf *sockets: build build-ebpf
+    sudo RUST_LOG=info ./target/release/tubular-lb tubular-lb-ebpf/target/bpfel-unknown-none/release/tubular-lb-ebpf {{sockets}}
