@@ -14,11 +14,11 @@
 ///   4. Sets STATE[0] = pool size.
 ///   5. Attaches the sk_lookup program to the network namespace.
 ///   6. Blocks until Ctrl-C, then cleans up.
-use std::{fs, mem, os::unix::io::{AsRawFd, RawFd}};
+use std::{fs, mem, os::unix::io::{AsFd, AsRawFd, RawFd}};
 
 use anyhow::{bail, Context, Result};
 use aya::{
-    maps::Array,
+    maps::{Array, Map},
     programs::SkLookup,
     Ebpf,
 };
@@ -71,7 +71,10 @@ async fn main() -> Result<()> {
     // We bypass aya's type check and call bpf_map_update_elem directly.
     {
         let map = bpf.map_mut("SOCK_POOL").context("SOCK_POOL map not found")?;
-        let map_fd = map.as_fd().as_raw_fd();
+        let map_fd = match map {
+            Map::SockMap(ref m) => m.fd().as_fd().as_raw_fd(),
+            _ => bail!("SOCK_POOL is not a SockMap"),
+        };
         for (i, &fd) in fds.iter().enumerate() {
             let key: u32 = i as u32;
             sockmap_insert(map_fd, key, fd)
