@@ -3,13 +3,10 @@
 #![allow(static_mut_refs)]
 
 use aya_ebpf::{
-    helpers::{bpf_map_lookup_elem, bpf_sk_assign, bpf_sk_release},
     macros::{map, sk_lookup},
     maps::{Array, SockMap},
     programs::SkLookupContext,
-    EbpfContext,
 };
-use aya_ebpf_cty::c_void;
 use aya_log_ebpf::info;
 
 const MAX_SOCKETS: u32 = 64;
@@ -56,17 +53,10 @@ fn try_lb(ctx: &SkLookupContext) -> Result<u32, i64> {
 
     info!(ctx, "trying slot {} of {}", idx, size);
 
-    unsafe {
-        let map_ptr = SOCK_POOL.def.get() as *mut c_void;
-        let sk = bpf_map_lookup_elem(map_ptr, &idx as *const _ as *const c_void);
-        if sk.is_null() {
-            info!(ctx, "slot {} is null in map", idx);
-            return Ok(0);
-        }
-        info!(ctx, "slot {} found, calling bpf_sk_assign", idx);
-        let ret = bpf_sk_assign(ctx.as_ptr() as *mut _, sk, BPF_SK_LOOKUP_F_REPLACE);
-        bpf_sk_release(sk);
-        info!(ctx, "bpf_sk_assign returned {}", ret);
+    let result = unsafe { SOCK_POOL.redirect_sk_lookup(ctx, idx, BPF_SK_LOOKUP_F_REPLACE) };
+    match result {
+        Ok(()) => info!(ctx, "bpf_sk_assign ok for slot {}", idx),
+        Err(e) => info!(ctx, "bpf_sk_assign failed slot {} err {}", idx, e),
     }
 
     Ok(0)
