@@ -1,8 +1,12 @@
 use std::env;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::os::unix::io::AsRawFd;
 
 fn handle_client(mut stream: TcpStream, port: u16, message: &str) {
+    let fd = stream.as_raw_fd();
+    println!("Accepted connection — fd: {}", fd);
+
     let mut buffer = [0u8; 1024];
     if stream.read(&mut buffer).is_err() {
         return;
@@ -50,6 +54,12 @@ fn handle_client(mut stream: TcpStream, port: u16, message: &str) {
       letter-spacing: -0.02em;
       margin-bottom: 1.75rem;
     }}
+    .fd {{
+      font-size: 0.85rem;
+      color: #4caf7d;
+      font-family: 'Courier New', monospace;
+      margin-bottom: 1.75rem;
+    }}
     .divider {{
       width: 40px;
       height: 2px;
@@ -67,12 +77,14 @@ fn handle_client(mut stream: TcpStream, port: u16, message: &str) {
   <div class="card">
     <p class="label">Listening on port</p>
     <p class="port">{port}</p>
+    <p class="fd">socket fd: {fd}</p>
     <div class="divider"></div>
     <p class="message">{message}</p>
   </div>
 </body>
 </html>"#,
         port = port,
+        fd = fd,
         message = message
     );
 
@@ -105,7 +117,7 @@ fn main() {
         std::process::exit(1);
     });
 
-    println!("Listening on port {}", port);
+    println!("Listening on port {} — listener fd: {}", port, listener.as_raw_fd());
     println!("Message: {}", message);
 
     for stream in listener.incoming() {
