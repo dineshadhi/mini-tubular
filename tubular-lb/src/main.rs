@@ -14,11 +14,7 @@
 ///   4. Sets STATE[0] = pool size.
 ///   5. Attaches the sk_lookup program to the network namespace.
 ///   6. Blocks until Ctrl-C, then cleans up.
-use std::{
-    fs,
-    os::unix::io::RawFd,
-    path::Path,
-};
+use std::{fs, os::unix::io::RawFd};
 
 use anyhow::{bail, Context, Result};
 use aya::{
