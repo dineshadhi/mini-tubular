@@ -10,6 +10,7 @@ use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rustls::ServerConfig;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::ServerConnection;
+use socket2::{Domain, Protocol, Socket, Type};
 
 // ── TLS certificate loading ────────────────────────────────────────────────
 
@@ -260,6 +261,16 @@ fn handle_client(
 
 // ── Entry point ────────────────────────────────────────────────────────────
 
+fn bind_listener(port: u16) -> std::io::Result<TcpListener> {
+    let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?;
+    // A dual-stack IPv6 listener accepts native IPv6 and IPv4-mapped traffic.
+    socket.set_only_v6(false)?;
+    socket.set_reuse_address(true)?;
+    socket.bind(&std::net::SocketAddr::from(([0u16; 8], port)).into())?;
+    socket.listen(128)?;
+    Ok(socket.into())
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -277,7 +288,7 @@ fn main() {
 
     let tls_config = build_tls_config();
 
-    let listener = TcpListener::bind(("0.0.0.0", port)).unwrap_or_else(|e| {
+    let listener = bind_listener(port).unwrap_or_else(|e| {
         eprintln!("Failed to bind to port {}: {}", port, e);
         std::process::exit(1);
     });
@@ -286,7 +297,10 @@ fn main() {
     let pid = std::process::id();
     let fd_path = format!("/proc/{}/fd/{}", pid, listener_fd);
 
-    println!("Listening on port {} — listener fd: {}", port, listener_fd);
+    println!(
+        "Listening on dual-stack IPv6 port {} — listener fd: {}",
+        port, listener_fd
+    );
     println!("Socket path (for eBPF loader): {}", fd_path);
     println!("Message: {}", message);
 
