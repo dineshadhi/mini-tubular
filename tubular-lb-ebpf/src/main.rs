@@ -3,7 +3,6 @@
 #![allow(static_mut_refs)]
 
 use aya_ebpf::{
-    bindings::bpf_sk_lookup,
     macros::{map, sk_lookup},
     maps::{Array, SockMap},
     programs::SkLookupContext,
